@@ -1,0 +1,59 @@
+name: Docker Images Saver
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Latest Rclone
+        run: |
+          sudo -v ; curl https://rclone.org/install.sh | sudo bash
+
+      - name: Pull and Package Images
+        id: pack
+        run: |
+          # 1. 拉取镜像
+          docker compose pull
+          
+          # 2. 精华提取：动态获取镜像名并去重
+          IMAGES=$(docker compose config --images | sort -u | xargs)
+          
+          if [ -z "$IMAGES" ]; then
+            echo "Error: No images found in docker-compose.yml"
+            exit 1
+          fi
+
+          FILENAME="backup-$(date +%Y%m%d%H%M).tar.gz"
+          echo "Packing images: $IMAGES"
+          
+          # 3. 流式打包并压缩
+          docker save $IMAGES | gzip > "$FILENAME"
+          
+          # 导出文件名供后续步骤调用
+          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+
+      - name: Upload via Rclone
+        env:
+          RCLONE_CONF_DATA: ${{ secrets.RCLONE_CONF_REAL_CONTENT }}
+        run: |
+          # 1. 通过环境变量生成临时配置文件
+          printf "%s" "$RCLONE_CONF_DATA" > rclone_tmp.conf
+          
+          # 2. 执行上传
+          # 请确保将 remote_name 替换为你 rclone.conf 中 [方括号] 里的名称
+          # 请确保将 your-bucket-name 替换为真实的桶名
+          rclone --config ./rclone_tmp.conf copy \
+            "${{ steps.pack.outputs.filename }}" \
+            remote_name:your-bucket-name/backups/ \
+            --progress
+          
+          # 3. 这里的清理是必要的，防止配置文件留在 Runner 磁盘上（虽然环境会销毁）
+          rm rclone_tmp.conf
