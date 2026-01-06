@@ -52,6 +52,7 @@ jobs:
           rclone --config ./rclone_tmp.conf copy \
             "${{ steps.pack.outputs.filename }}" \
             "$RCLONE_UPLOAD_PATH" \
-            --progress
+            --progress \
+            -vv
           
           rm rclone_tmp.conf
