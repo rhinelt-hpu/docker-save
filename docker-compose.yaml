@@ -4,6 +4,7 @@
 # or docker-compose-template.yaml and regenerate this file.
 # ==================================================================
 
+
 x-shared-env: &shared-api-worker-env
   CONSOLE_API_URL: ${CONSOLE_API_URL:-}
   CONSOLE_WEB_URL: ${CONSOLE_WEB_URL:-}
