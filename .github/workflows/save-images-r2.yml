@@ -61,16 +61,46 @@ jobs:
           echo "Building for platform: $PLATFORM"
           echo "Images to process: $IMAGES"
           
-          # 3. 为指定平台拉取镜像
+          # 3. 提取项目名称（优先级顺序）
+          PROJECT_NAME=""
+          
+          # 方法1：尝试从 docker-compose.yaml 中提取 name 字段
+          if [ -f docker-compose.yaml ]; then
+            PROJECT_NAME=$(grep -E "^name:" docker-compose.yaml | head -1 | awk '{print $2}' | tr -d '"' | tr -d "'")
+          fi
+          
+          # 方法2：如果没有 name 字段，尝试提取第一个服务名
+          if [ -z "$PROJECT_NAME" ]; then
+            PROJECT_NAME=$(docker compose config --services | head -1)
+          fi
+          
+          # 方法3：使用目录名
+          if [ -z "$PROJECT_NAME" ]; then
+            PROJECT_NAME=$(basename "$(pwd)")
+          fi
+          
+          # 方法4：默认回退名称
+          if [ -z "$PROJECT_NAME" ]; then
+            PROJECT_NAME="docker-images"
+          fi
+          
+          # 清理项目名称，移除特殊字符，转为小写
+          PROJECT_NAME=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')
+          
+          echo "Project name: $PROJECT_NAME"
+          
+          # 4. 为指定平台拉取镜像
           for IMAGE in $IMAGES; do
             echo "Pulling $IMAGE for $PLATFORM"
             docker pull --platform=$PLATFORM $IMAGE
           done
           
-          FILENAME="backup-${ARCH_SUFFIX}-$(date +%Y%m%d%H%M).tar.gz"
+          # 5. 生成文件名：<项目名>-<架构>-<时间戳>.tar.gz
+          FILENAME="${PROJECT_NAME}-${ARCH_SUFFIX}-$(date +%Y%m%d%H%M).tar.gz"
           echo "Packing images: $IMAGES"
+          echo "Output filename: $FILENAME"
           
-          # 4. 流式打包并压缩
+          # 6. 流式打包并压缩
           docker save $IMAGES | gzip > "$FILENAME"
           
           # 导出文件名供后续步骤调用
