@@ -3,6 +3,8 @@ name: Docker Images Saver
 on:
   push:
     branches: [ main ]
+    paths:
+      - '**'
   workflow_dispatch:
 
 jobs:
@@ -13,14 +15,39 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Install Latest Rclone
         run: |
           sudo -v ; curl https://rclone.org/install.sh | sudo bash
 
+      - name: Detect Architecture
+        id: detect_arch
+        run: |
+          # 检测是否是 arm64 文件夹的推送
+          CHANGED_FILES="${{ github.event.head_commit.modified }} ${{ github.event.head_commit.added }}"
+          
+          if echo "$CHANGED_FILES" | grep -q "arm64/"; then
+            echo "Building ARM64 images"
+            echo "platform=linux/arm64" >> $GITHUB_OUTPUT
+            echo "arch_suffix=arm64" >> $GITHUB_OUTPUT
+          else
+            echo "Building AMD64 images"
+            echo "platform=linux/amd64" >> $GITHUB_OUTPUT
+            echo "arch_suffix=amd64" >> $GITHUB_OUTPUT
+          fi
+
       - name: Pull and Package Images
         id: pack
         run: |
-          # 1. 拉取镜像
+          PLATFORM="${{ steps.detect_arch.outputs.platform }}"
+          ARCH_SUFFIX="${{ steps.detect_arch.outputs.arch_suffix }}"
+          
+          # 1. 拉取镜像（指定平台）
           docker compose pull
           
           # 2. 精华提取：动态获取镜像名并去重
@@ -31,10 +58,19 @@ jobs:
             exit 1
           fi
 
-          FILENAME="backup-$(date +%Y%m%d%H%M).tar.gz"
+          echo "Building for platform: $PLATFORM"
+          echo "Images to process: $IMAGES"
+          
+          # 3. 为指定平台拉取镜像
+          for IMAGE in $IMAGES; do
+            echo "Pulling $IMAGE for $PLATFORM"
+            docker pull --platform=$PLATFORM $IMAGE
+          done
+          
+          FILENAME="backup-${ARCH_SUFFIX}-$(date +%Y%m%d%H%M).tar.gz"
           echo "Packing images: $IMAGES"
           
-          # 3. 流式打包并压缩
+          # 4. 流式打包并压缩
           docker save $IMAGES | gzip > "$FILENAME"
           
           # 导出文件名供后续步骤调用
