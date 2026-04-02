@@ -72,16 +72,23 @@ jobs:
             cd arm64
           fi
           
-          # 1. 拉取镜像（指定平台）
-          docker compose pull
+          # 1. 检查是否存在 compose 文件并获取镜像名（精华提取）
+          if ! docker compose config > /dev/null 2>&1; then
+            echo "Warning: No valid docker-compose.yml found or it's empty in $(pwd). Skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           
-          # 2. 精华提取：动态获取镜像名并去重
           IMAGES=$(docker compose config --images | sort -u | xargs)
           
           if [ -z "$IMAGES" ]; then
-            echo "Error: No images found in docker-compose.yml"
-            exit 1
+            echo "Warning: No images found in docker-compose.yml. Skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
           fi
+          
+          # 2. 拉取镜像（指定平台）
+          docker compose pull
 
           echo "Building for platform: $PLATFORM"
           echo "Images to process: $IMAGES"
@@ -138,6 +145,7 @@ jobs:
           echo "filename=$FILENAME" >> $GITHUB_OUTPUT
 
       - name: Upload via Rclone
+        if: steps.pack.outputs.skip != 'true'
         env:
           RCLONE_CONF_DATA: ${{ secrets.RCLONE_CONF_REAL_CONTENT }}
           RCLONE_UPLOAD_PATH: ${{ secrets.RCLONE_UPLOAD_PATH }}
