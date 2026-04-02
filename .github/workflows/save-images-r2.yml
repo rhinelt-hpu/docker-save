@@ -6,6 +6,16 @@ on:
     paths:
       - '**'
   workflow_dispatch:
+    inputs:
+      arch:
+        description: 'Architecture to build'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - amd64
+          - arm64
 
 jobs:
   backup:
@@ -28,17 +38,28 @@ jobs:
       - name: Detect Architecture
         id: detect_arch
         run: |
-          # 检测是否是 arm64 文件夹的推送
-          CHANGED_FILES="${{ github.event.head_commit.modified }} ${{ github.event.head_commit.added }}"
+          MANUAL_ARCH="${{ github.event.inputs.arch }}"
           
-          if echo "$CHANGED_FILES" | grep -q "arm64/"; then
-            echo "Building ARM64 images"
+          if [ "$MANUAL_ARCH" = "arm64" ]; then
+            echo "Building ARM64 images (manual)"
             echo "platform=linux/arm64" >> $GITHUB_OUTPUT
             echo "arch_suffix=arm64" >> $GITHUB_OUTPUT
-          else
-            echo "Building AMD64 images"
+          elif [ "$MANUAL_ARCH" = "amd64" ]; then
+            echo "Building AMD64 images (manual)"
             echo "platform=linux/amd64" >> $GITHUB_OUTPUT
             echo "arch_suffix=amd64" >> $GITHUB_OUTPUT
+          else
+            # 自动检测是否是 arm64 文件夹的推送
+            CHANGED_FILES="${{ github.event.head_commit.modified }} ${{ github.event.head_commit.added }}"
+            if echo "$CHANGED_FILES" | grep -q "arm64/"; then
+              echo "Building ARM64 images (auto)"
+              echo "platform=linux/arm64" >> $GITHUB_OUTPUT
+              echo "arch_suffix=arm64" >> $GITHUB_OUTPUT
+            else
+              echo "Building AMD64 images (auto)"
+              echo "platform=linux/amd64" >> $GITHUB_OUTPUT
+              echo "arch_suffix=amd64" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Pull and Package Images
@@ -46,6 +67,10 @@ jobs:
         run: |
           PLATFORM="${{ steps.detect_arch.outputs.platform }}"
           ARCH_SUFFIX="${{ steps.detect_arch.outputs.arch_suffix }}"
+          
+          if [ "$ARCH_SUFFIX" = "arm64" ]; then
+            cd arm64
+          fi
           
           # 1. 拉取镜像（指定平台）
           docker compose pull
@@ -102,6 +127,12 @@ jobs:
           
           # 6. 流式打包并压缩
           docker save $IMAGES | gzip > "$FILENAME"
+          
+          # 如果在子目录中，则回退到上一级
+          if [ "$ARCH_SUFFIX" = "arm64" ]; then
+            cd ..
+            FILENAME="arm64/$FILENAME"
+          fi
           
           # 导出文件名供后续步骤调用
           echo "filename=$FILENAME" >> $GITHUB_OUTPUT
